@@ -1,0 +1,12 @@
+node_modules/
+
+*.log
+npm-debug.log*
+.cache/
+
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+
+.idea/
