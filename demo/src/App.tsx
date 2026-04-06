@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ABTestProvider, useABTestClient, useExperiment, useFeatureFlag } from '@zimran-test-lib/core/react';
 import { MockTransport } from '@zimran-test-lib/core/transports';
 import type { ExperimentConfig } from '@zimran-test-lib/core';
+import { AdminPanel } from './AdminPanel';
 
 const experiments: ExperimentConfig[] = [
   {
@@ -20,18 +21,48 @@ const experiments: ExperimentConfig[] = [
 
 const transport = new MockTransport();
 
+function useHashRoute() {
+  const [route, setRoute] = useState(window.location.hash);
+
+  useEffect(() => {
+    const handler = () => setRoute(window.location.hash);
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  return route;
+}
+
 export function App() {
+  const route = useHashRoute();
+  const isAdmin = route === '#admin';
+
   return (
     <ABTestProvider experiments={experiments} transport={transport}>
-      <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '40px auto', padding: '0 20px' }}>
-        <h1>A/B Test Library Demo</h1>
+      {isAdmin ? (
+        <AdminPanel transport={transport} initialExperiments={experiments} />
+      ) : (
+        <DemoPage />
+      )}
+    </ABTestProvider>
+  );
+}
+
+function DemoPage() {
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '40px auto', padding: '0 20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ margin: 0 }}>A/B Test Library Demo</h1>
+        <a href="#admin" style={{ fontSize: 14 }}>Admin Panel</a>
+      </div>
+      <div style={{ marginTop: 24 }}>
         <UserSection />
         <hr style={{ margin: '24px 0' }} />
         <ExperimentSection />
         <hr style={{ margin: '24px 0' }} />
         <ConfigPanel />
       </div>
-    </ABTestProvider>
+    </div>
   );
 }
 
