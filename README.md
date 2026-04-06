@@ -301,6 +301,27 @@ const client = createABTestClient({
 });
 ```
 
+## Demo App & Admin Panel
+
+The `demo/` directory contains a working React app that shows the library in action.
+
+```bash
+cd demo
+npm install
+npm run dev
+```
+
+**Demo page** (`/`) — initialize a user, see their variant assignment, observe conditional rendering based on experiment results.
+
+**Admin panel** (`/#admin`) — a mock admin interface for live config editing:
+- **Edit experiments** — adjust split percentages, toggle enabled/disabled
+- **Push config changes** via MockTransport (simulates server updates) — per experiment or all at once
+- **QA overrides** — force a specific variant for the current user, see active overrides, clear individually or all
+- **Assignment view** — see which variant the current user is assigned to (ACTIVE/OVERRIDE badges)
+- **Activity log** — timestamped record of all config pushes and override actions
+
+The admin panel uses the same public API as any consumer — `transport.emit()` for config pushes, `client.overrideVariant()` for QA overrides. In production, you'd swap `MockTransport` for `WebSocketTransport` pointed at your backend.
+
 ## TypeScript
 
 All types are exported from the main entry point:
