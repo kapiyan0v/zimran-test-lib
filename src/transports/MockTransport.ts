@@ -1,4 +1,4 @@
-import { ConfigTransport, ExperimentConfig } from '../types';
+import { ConfigTransport, ExperimentConfig } from '@/types';
 
 export class MockTransport implements ConfigTransport {
   private callback: ((config: ExperimentConfig) => void) | null = null;
