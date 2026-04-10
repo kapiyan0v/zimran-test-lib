@@ -1,10 +1,11 @@
-import { UserData, ABTestClientOptions, InitUserOptions, UpdateUserOptions, ExperimentConfig, ABTestPlugin, PersistedState } from '../types';
+import { UserData, ABTestClientOptions, InitUserOptions, UpdateUserOptions, ExperimentConfig, ABTestPlugin, PersistedState } from '@/types';
 import { UserManager } from './UserManagement';
 import { ExperimentRegistry } from './ExperimentRegistry';
 import { VariantAssigner } from './VariantAssigner';
 import { PersistenceManager } from './PersistenceManager';
 
 type ConfigChangeCallback = (config: ExperimentConfig) => void;
+type ChangeCallback = () => void;
 
 export class ABTestClient {
   private userManager: UserManager;
@@ -14,6 +15,9 @@ export class ABTestClient {
   private plugins: ABTestPlugin[];
   private overrides = new Map<string, string>();
   private configListeners: ConfigChangeCallback[] = [];
+  private changeListeners: ChangeCallback[] = [];
+
+  private overrideStorageKey: string;
 
   constructor(options: ABTestClientOptions) {
     this.userManager = new UserManager();
@@ -21,12 +25,14 @@ export class ABTestClient {
     this.assigner = new VariantAssigner();
     this.persistence = new PersistenceManager(options.storageKey);
     this.plugins = options.plugins ?? [];
+    this.overrideStorageKey = `${options.storageKey ?? 'ab_test_lib'}_overrides`;
 
     if (options.transport) {
       options.transport.subscribe((config) => this.handleConfigUpdate(config));
     }
 
     this.persistence.onExternalChange((state) => this.handleCrossTabSync(state));
+    this.loadPersistedOverrides();
   }
 
   initializeUser(userData: UserData, options?: InitUserOptions): void {
@@ -37,6 +43,7 @@ export class ABTestClient {
       this.userManager.setUser(cached.user);
       this.registry.restoreAssignments(cached.assignments);
       this.restoreOverrides(cached.overrides);
+      this.notifyChange();
       return;
     }
 
@@ -44,6 +51,7 @@ export class ABTestClient {
     this.registry.clearAssignments();
     this.persist();
     this.notifyPlugins('onUserInitialized', userData);
+    this.notifyChange();
   }
 
   updateUser(userData: Partial<UserData>, options?: UpdateUserOptions): void {
@@ -54,6 +62,7 @@ export class ABTestClient {
     }
 
     this.persist();
+    this.notifyChange();
   }
 
   getVariant(experimentKey: string): string {
@@ -87,6 +96,7 @@ export class ABTestClient {
     this.overrides.set(experimentKey, variant);
     this.persist();
     this.notifyPlugins('onOverrideSet', experimentKey, variant);
+    this.notifyChange();
   }
 
   resetOverrides(experimentKey?: string): void {
@@ -96,6 +106,7 @@ export class ABTestClient {
       this.overrides.clear();
     }
     this.persist();
+    this.notifyChange();
   }
 
   onConfigChange(callback: ConfigChangeCallback): () => void {
@@ -105,14 +116,23 @@ export class ABTestClient {
     };
   }
 
+  onChange(callback: ChangeCallback): () => void {
+    this.changeListeners.push(callback);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((cb) => cb !== callback);
+    };
+  }
+
   addPlugin(plugin: ABTestPlugin): void {
     this.plugins.push(plugin);
   }
 
   private handleConfigUpdate(config: ExperimentConfig): void {
     this.registry.update(config);
+    this.registry.clearAssignment(config.key);
     this.notifyPlugins('onConfigUpdated', config);
     this.configListeners.forEach((cb) => cb(config));
+    this.notifyChange();
   }
 
   private handleCrossTabSync(state: PersistedState): void {
@@ -123,6 +143,7 @@ export class ABTestClient {
 
     this.registry.restoreAssignments(state.assignments);
     this.restoreOverrides(state.overrides);
+    this.notifyChange();
   }
 
   private restoreOverrides(overrides: Record<string, string>): void {
@@ -133,6 +154,8 @@ export class ABTestClient {
   }
 
   private persist(): void {
+    this.persistOverrides();
+
     if (!this.userManager.isInitialized()) return;
 
     const state: PersistedState = {
@@ -142,6 +165,35 @@ export class ABTestClient {
     };
 
     this.persistence.save(state);
+  }
+
+  private persistOverrides(): void {
+    try {
+      localStorage.setItem(this.overrideStorageKey, JSON.stringify(Object.fromEntries(this.overrides)));
+    } catch {
+      // silent
+    }
+  }
+
+  private loadPersistedOverrides(): void {
+    try {
+      const raw = localStorage.getItem(this.overrideStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) {
+        Object.entries(parsed).forEach(([key, val]) => {
+          if (typeof val === 'string') {
+            this.overrides.set(key, val);
+          }
+        });
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  private notifyChange(): void {
+    this.changeListeners.forEach((cb) => cb());
   }
 
   private notifyPlugins(hook: keyof ABTestPlugin, ...args: unknown[]): void {

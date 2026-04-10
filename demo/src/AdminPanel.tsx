@@ -15,6 +15,13 @@ interface ExperimentDraft {
   enabled: boolean;
 }
 
+interface NewExperimentForm {
+  key: string;
+  variantsCsv: string;
+  splitCsv: string;
+  enabled: boolean;
+}
+
 export function AdminPanel({ transport, initialExperiments }: AdminPanelProps) {
   const client = useABTestClient();
   const [experiments, setExperiments] = useState<ExperimentDraft[]>(
@@ -26,6 +33,13 @@ export function AdminPanel({ transport, initialExperiments }: AdminPanelProps) {
   const [overrideKey, setOverrideKey] = useState('');
   const [overrideVariant, setOverrideVariant] = useState('');
   const [pushLog, setPushLog] = useState<string[]>([]);
+  const [newExp, setNewExp] = useState<NewExperimentForm>({
+    key: '',
+    variantsCsv: 'control,variant_a',
+    splitCsv: '50,50',
+    enabled: true,
+  });
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   // Try to read current assignments
   const refreshAssignments = useCallback(() => {
@@ -50,7 +64,13 @@ export function AdminPanel({ transport, initialExperiments }: AdminPanelProps) {
 
   useEffect(() => {
     refreshAssignments();
-  }, [refreshAssignments]);
+
+    const unsub = client.onChange(() => {
+      refreshAssignments();
+    });
+
+    return unsub;
+  }, [client, refreshAssignments]);
 
   const handleSplitChange = (expIndex: number, splitIndex: number, value: string) => {
     setExperiments((prev) => {
@@ -135,11 +155,58 @@ export function AdminPanel({ transport, initialExperiments }: AdminPanelProps) {
     ]);
   };
 
+  const handleCreateExperiment = () => {
+    const variants = newExp.variantsCsv.split(',').map((v) => v.trim()).filter(Boolean);
+    const split = newExp.splitCsv.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+
+    if (!newExp.key.trim()) {
+      alert('Experiment key is required.');
+      return;
+    }
+    if (experiments.some((e) => e.key === newExp.key.trim())) {
+      alert(`Experiment "${newExp.key}" already exists.`);
+      return;
+    }
+    if (variants.length < 2) {
+      alert('At least 2 variants required.');
+      return;
+    }
+    if (variants.length !== split.length) {
+      alert(`Variants count (${variants.length}) doesn't match split count (${split.length}).`);
+      return;
+    }
+    const total = split.reduce((s, n) => s + n, 0);
+    if (total !== 100) {
+      alert(`Split sums to ${total}, must be 100.`);
+      return;
+    }
+
+    const config: ExperimentConfig = {
+      key: newExp.key.trim(),
+      variants,
+      split,
+      enabled: newExp.enabled,
+    };
+
+    // Add to local state and immediately push via transport
+    setExperiments((prev) => [...prev, { ...config, split: [...config.split] }]);
+    transport.emit(config);
+
+    setPushLog((prev) => [
+      `[${new Date().toLocaleTimeString()}] Created & pushed "${config.key}": variants=[${variants}], split=[${split}], enabled=${config.enabled}`,
+      ...prev.slice(0, 19),
+    ]);
+
+    // Reset form
+    setNewExp({ key: '', variantsCsv: 'control,variant_a', splitCsv: '50,50', enabled: true });
+    setShowCreateForm(false);
+  };
+
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 800, margin: '40px auto', padding: '0 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1 style={{ margin: 0 }}>Admin Panel</h1>
-        <a href="#" style={{ fontSize: 14 }}>Back to Demo</a>
+        <a href="#demo" onClick={(e) => { e.preventDefault(); window.location.hash = ''; }} style={{ fontSize: 14 }}>Back to Demo</a>
       </div>
 
       {/* Experiments Editor */}
@@ -289,6 +356,95 @@ export function AdminPanel({ transport, initialExperiments }: AdminPanelProps) {
             </div>
           );
         })}
+        {/* Create new experiment */}
+        {!showCreateForm ? (
+          <button
+            onClick={() => setShowCreateForm(true)}
+            style={{
+              padding: '8px 20px',
+              cursor: 'pointer',
+              background: '#fff',
+              color: '#1976d2',
+              border: '2px dashed #1976d2',
+              borderRadius: 8,
+              fontWeight: 600,
+              width: '100%',
+              fontSize: 14,
+            }}
+          >
+            + Create New Experiment
+          </button>
+        ) : (
+          <div style={{ border: '2px solid #1976d2', borderRadius: 8, padding: 16, background: '#e3f2fd' }}>
+            <h3 style={{ margin: '0 0 12px', color: '#1976d2' }}>New Experiment</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ fontSize: 13 }}>
+                Key:
+                <input
+                  value={newExp.key}
+                  onChange={(e) => setNewExp((p) => ({ ...p, key: e.target.value }))}
+                  placeholder="e.g. pricing_page"
+                  style={{ marginLeft: 8, padding: '4px 8px', fontSize: 14, width: 200 }}
+                />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Variants (comma-separated):
+                <input
+                  value={newExp.variantsCsv}
+                  onChange={(e) => setNewExp((p) => ({ ...p, variantsCsv: e.target.value }))}
+                  placeholder="control,variant_a,variant_b"
+                  style={{ marginLeft: 8, padding: '4px 8px', fontSize: 14, width: 300 }}
+                />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Split % (comma-separated):
+                <input
+                  value={newExp.splitCsv}
+                  onChange={(e) => setNewExp((p) => ({ ...p, splitCsv: e.target.value }))}
+                  placeholder="50,50"
+                  style={{ marginLeft: 8, padding: '4px 8px', fontSize: 14, width: 200 }}
+                />
+              </label>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={newExp.enabled}
+                  onChange={(e) => setNewExp((p) => ({ ...p, enabled: e.target.checked }))}
+                />
+                Enabled (starts immediately)
+              </label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  onClick={handleCreateExperiment}
+                  style={{
+                    padding: '6px 16px',
+                    cursor: 'pointer',
+                    background: '#1976d2',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    fontWeight: 600,
+                  }}
+                >
+                  Create & Push
+                </button>
+                <button
+                  onClick={() => setShowCreateForm(false)}
+                  style={{
+                    padding: '6px 16px',
+                    cursor: 'pointer',
+                    background: '#fff',
+                    color: '#666',
+                    border: '1px solid #ccc',
+                    borderRadius: 4,
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <hr style={{ margin: '24px 0' }} />

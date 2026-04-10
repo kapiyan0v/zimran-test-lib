@@ -1,4 +1,4 @@
-import { ExperimentConfig } from '../types';
+import { ExperimentConfig } from '@/types';
 import { ABTestError } from './errors';
 
 export class ExperimentRegistry {
@@ -47,6 +47,10 @@ export class ExperimentRegistry {
     Object.entries(saved).forEach(([key, variant]) => {
       this.assignments.set(key, variant);
     });
+  }
+
+  clearAssignment(key: string): void {
+    this.assignments.delete(key);
   }
 
   clearAssignments(): void {

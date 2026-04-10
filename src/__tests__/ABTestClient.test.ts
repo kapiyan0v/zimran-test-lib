@@ -251,6 +251,134 @@ describe('ABTestClient', () => {
     });
   });
 
+  describe('onChange unified event', () => {
+    it('fires on overrideVariant', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      client.onChange(listener);
+      client.overrideVariant('button-color', 'blue');
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on resetOverrides', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      client.overrideVariant('button-color', 'blue');
+      const listener = vi.fn();
+      client.onChange(listener);
+      client.resetOverrides('button-color');
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on initializeUser', () => {
+      const client = makeClient();
+      const listener = vi.fn();
+      client.onChange(listener);
+      client.initializeUser({ id: 'user-1' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on initializeUser with different user (re-init)', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      client.onChange(listener);
+      client.initializeUser({ id: 'user-2' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on updateUser', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      client.onChange(listener);
+      client.updateUser({ email: 'new@test.com' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on config update via transport', () => {
+      const transport = new MockTransport();
+      const client = makeClient({ transport });
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      client.onChange(listener);
+      transport.emit({ ...experiment, split: [50, 25, 25] });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('unsubscribe works', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      const unsub = client.onChange(listener);
+      unsub();
+      client.overrideVariant('button-color', 'blue');
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('config update clears cached assignment', () => {
+    it('recomputes variant when experiment config changes', () => {
+      const transport = new MockTransport();
+      const client = makeClient({ transport });
+      client.initializeUser({ id: 'user-1' });
+
+      // Get initial variant (caches it)
+      const v1 = client.getVariant('button-color');
+      expect(experiment.variants).toContain(v1);
+
+      // Push new config — gives 100% to 'red'
+      transport.emit({
+        key: 'button-color',
+        variants: ['control', 'red', 'blue'],
+        split: [0, 100, 0],
+        enabled: true,
+      });
+
+      // Should recompute, not return cached
+      const v2 = client.getVariant('button-color');
+      expect(v2).toBe('red');
+    });
+  });
+
+  describe('override persistence without user init', () => {
+    it('persists overrides set before user initialization', () => {
+      const key = `test-override-persist-${Math.random()}`;
+      const client1 = makeClient({ storageKey: key });
+      // Set override BEFORE user init
+      client1.overrideVariant('button-color', 'blue');
+
+      // New client loads persisted overrides
+      const client2 = makeClient({ storageKey: key });
+      client2.initializeUser({ id: 'user-1' });
+      expect(client2.getVariant('button-color')).toBe('blue');
+    });
+  });
+
+  describe('user re-initialization', () => {
+    it('clears previous assignments when switching users', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      client.getVariant('button-color');
+      client.initializeUser({ id: 'user-2' });
+      const v2 = client.getVariant('button-color');
+
+      // Different users may get same variant (hash-based), but assignments were cleared
+      expect(experiment.variants).toContain(v2);
+    });
+
+    it('fires onChange so hooks can recompute', () => {
+      const client = makeClient();
+      client.initializeUser({ id: 'user-1' });
+      const listener = vi.fn();
+      client.onChange(listener);
+
+      client.initializeUser({ id: 'user-2' });
+      expect(listener).toHaveBeenCalled();
+    });
+  });
+
   describe('createABTestClient helper', () => {
     it('returns an ABTestClient instance', () => {
       const client = createABTestClient({

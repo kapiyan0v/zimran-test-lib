@@ -1,4 +1,3 @@
-import { ExperimentConfig } from '@/types';
 import { useABTestClient } from '@/react';
 import { useState, useEffect, useCallback } from 'react';
 
@@ -14,10 +13,8 @@ export function useFeatureFlag(flagKey: string): boolean {
   useEffect(() => {
     setEnabled(check());
 
-    const unsub = client.onConfigChange((config: ExperimentConfig) => {
-      if (config.key === flagKey) {
-        setEnabled(check());
-      }
+    const unsub = client.onChange(() => {
+      setEnabled(check());
     });
 
     return unsub;

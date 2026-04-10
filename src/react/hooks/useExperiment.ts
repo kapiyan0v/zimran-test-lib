@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useABTestClient } from '@/react';
-import { ExperimentConfig } from '@/types';
 
 interface UseExperimentResult {
   variant: string | null;
@@ -23,10 +22,8 @@ export function useExperiment(experimentKey: string): UseExperimentResult {
   useEffect(() => {
     setVariant(getVariantSafe());
 
-    const unsub = client.onConfigChange((config: ExperimentConfig) => {
-      if (config.key === experimentKey) {
-        setVariant(getVariantSafe());
-      }
+    const unsub = client.onChange(() => {
+      setVariant(getVariantSafe());
     });
 
     return unsub;
